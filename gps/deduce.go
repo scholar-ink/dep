@@ -25,13 +25,16 @@ import (
 )
 
 var (
-	gitSchemes     = []string{"https", "ssh", "git", "http"}
-	bzrSchemes     = []string{"https", "bzr+ssh", "bzr", "http"}
-	hgSchemes      = []string{"https", "ssh", "http"}
-	svnSchemes     = []string{"https", "http", "svn", "svn+ssh"}
-	gopkginSchemes = []string{"https", "http"}
-	netrc          []netrcLine
-	readNetrcOnce  sync.Once
+	gitSchemes         = []string{"https", "ssh", "git", "http"}
+	bzrSchemes         = []string{"https", "bzr+ssh", "bzr", "http"}
+	hgSchemes          = []string{"https", "ssh", "http"}
+	svnSchemes         = []string{"https", "http", "svn", "svn+ssh"}
+	gopkginSchemes     = []string{"https", "http"}
+	netrc              []netrcLine
+	readNetrcOnce      sync.Once
+	golangXPrefix      = "golang.org/x"
+	googleGolangPrefix = "google.golang.org"
+	codingPrefix       = "git.coding.net"
 )
 
 const gopkgUnstableSuffix = "-unstable"
@@ -80,6 +83,9 @@ var (
 	jazzRegex         = regexp.MustCompile(`^(?P<root>hub\.jazz\.net(/git/[a-z0-9]+/[A-Za-z0-9_.\-]+))((?:/[A-Za-z0-9_.\-]+)*)$`)
 	apacheRegex       = regexp.MustCompile(`^(?P<root>git\.apache\.org(/[a-z0-9_.\-]+\.git))((?:/[A-Za-z0-9_.\-]+)*)$`)
 	vcsExtensionRegex = regexp.MustCompile(`^(?P<root>([a-z0-9.\-]+\.)+[a-z0-9.\-]+(:[0-9]+)?/[A-Za-z0-9_.\-/~]*?\.(?P<vcs>bzr|git|hg|svn))((?:/[A-Za-z0-9_.\-]+)*)$`)
+	golangXRegex      = regexp.MustCompile(`^(?P<root>golang\.org/x(/[A-Za-z0-9_.\-]+))((?:/[A-Za-z0-9_.\-]+)*)$`)
+	googleGolangRegex = regexp.MustCompile(`^(?P<root>google\.golang\.org(/[A-Za-z0-9_.\-]+))((?:/[A-Za-z0-9_.\-]+)*)$`)
+	codingRegex       = regexp.MustCompile(`^(?P<root>git\.coding\.net(/[A-Za-z0-9_.\-]+))((?:/[A-Za-z0-9_.\-]+)*)$`)
 )
 
 // Other helper regexes
@@ -726,18 +732,51 @@ func (hmd *httpMetadataDeducer) deduce(ctx context.Context, path string) (pathDe
 
 		// Make the HTTP call to attempt to retrieve go-get metadata
 		var root, vcs, reporoot string
-		err = hmd.suprvsr.do(ctx, path, ctHTTPMetadata, func(ctx context.Context) error {
+		//err = hmd.suprvsr.do(ctx, path, ctHTTPMetadata, func(ctx context.Context) error {
+		//	root, vcs, reporoot, err = getMetadata(ctx, path, u.Scheme)
+		//	if err != nil {
+		//		err = errors.Wrapf(err, "unable to read metadata")
+		//	}
+		//	return err
+		//})
+		if strings.HasPrefix(path, codingPrefix) {
+
+			v := codingRegex.FindStringSubmatch(path)
+
+			path = v[1]
+
+			root, vcs, reporoot, err = path, "git", "https://"+path+".git", nil
+
+		} else if strings.HasPrefix(path, googleGolangPrefix) {
+
+			v := googleGolangRegex.FindStringSubmatch(path)
+
+			path = googleGolangPrefix + v[2]
+
+			root, vcs, reporoot, err = path, "git", "https://"+strings.Replace(path, googleGolangPrefix, "github.com/golang", 1), nil
+
+		} else if strings.HasPrefix(path, golangXPrefix) {
+
+			v := golangXRegex.FindStringSubmatch(path)
+
+			path = golangXPrefix + v[2]
+
+			root, vcs, reporoot, err = path, "git", "https://"+strings.Replace(path, golangXPrefix, "github.com/golang", 1), nil
+
+		} else {
+
 			root, vcs, reporoot, err = getMetadata(ctx, path, u.Scheme)
+
 			if err != nil {
 				err = errors.Wrapf(err, "unable to read metadata")
 			}
-			return err
-		})
+		}
 		if err != nil {
 			err = errors.Wrapf(err, "unable to deduce repository and source type for %q", opath)
 			hmd.deduceErr = err
 			return
 		}
+		fmt.Println(root, vcs, reporoot)
 		pd.root = root
 
 		// If we got something back at all, then it supersedes the actual input for
